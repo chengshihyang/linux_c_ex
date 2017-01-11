@@ -1,0 +1,112 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <sys/ioctl.h>
+#include <linux/if_ether.h>
+#include <linux/if_arp.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/ethernet.h>
+
+struct ether_arp {
+  unsigned short arp_hrd;
+  unsigned short arp_pro;
+  unsigned char arp_hln;
+  unsigned char arp_pln;
+  unsigned short arp_op;
+  unsigned char arp_sha[6];
+  unsigned char arp_spa[4];
+  unsigned char arp_tha[6];
+  unsigned char arp_tpa[4];
+};
+
+#define MAXIP 20
+#define MAXMAC 20
+#define DNS_LOG_FILE "/tmp/dns_sniff.log"
+static unsigned int count=0;
+FILE *fp=NULL;
+
+
+int main(int argc, char* argv[])
+{
+    int sock;
+    fd_set fds;
+    unsigned int maxfd=0;
+    struct timeval timeout={5,0};
+    char *dev = "br1";
+
+    /* buf is buffer containing the ethernet frame */
+    unsigned char buf[65535];
+    struct ether_arp *arp_frame;
+
+    /* skipping the 14 bytes of ethernet frame header */
+    arp_frame = (struct ether_arp *) (buf + 14);
+
+#if 0
+    if ((sock = socket (AF_PACKET, SOCK_RAW, htons (ETH_P_ARP))) < 0) {
+        perror ("socket() failed ");
+        exit (EXIT_FAILURE);
+    }
+#else
+    //if (( sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    if (( sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP))) < 0) {
+        perror ("socket() failed ");
+        exit (EXIT_FAILURE);
+    }
+#endif
+
+   setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, dev, 4);
+   fp=fopen(DNS_LOG_FILE, "w");
+
+   while(1)
+   {
+     FD_ZERO(&fds);
+     FD_SET(sock,&fds);
+     maxfd=sock+1;
+     switch(select(maxfd,&fds,&fds,NULL,&timeout)) {
+         case -1:
+           exit(-1);
+           break;
+         case 0:
+           break;
+         default:
+           if(FD_ISSET(sock, &fds)) {
+             int size=recv(sock, buf, sizeof(buf), 0);
+             int i=0;
+#if 0
+             if (size > 57 && fp && (buf[37]==53) && (buf[24]==17)) {
+               for (i=54; i<54+strlen(buf+54);) {
+                 unsigned char offset=buf[i];
+                 buf[i]=0x2e;
+                 i += offset + 1;
+               }
+               //fprintf(fp, "%s\n", buf+55);
+               printf("%s\n", buf+55);
+               count ++;
+             }
+#else
+           if ((size > 57) && (buf[37] == 53)) {
+             for (i=0; i< size; i++) {
+               printf("%02x", buf[i]&0xff);
+             }
+             printf("\n");
+           }
+           count ++;
+#endif
+           }
+
+           if (count > 40) {
+           //  fclose(fp);
+           //  system("mv /tmp/dns_sniff.log /tmp/dns_sniff.log.1");
+           //  fp=fopen(DNS_LOG_FILE, "w");
+             count =0;
+           //  exit(1);
+           }
+     }
+   }
+}
